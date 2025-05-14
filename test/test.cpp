@@ -11,16 +11,17 @@
 // === SENSOR-PINS ===
 #define IR_LEFT A2
 #define IR_MIDDLE A3
-#define IR_RIGHT A1
+#define IR_RIGHT A0
 
 // === OBJEKT ===
 Servo steeringServo;
 
 // === KONSTANTER ===
-const int driveSpeed = 50;             // Enda hastighetsvärdet nu
+const int maxSpeed = 80;
+const int minSpeed = 40;  // ny min-hastighet
 const int servoCenter = 87;
 
-const int stuckThreshold = 10;
+const int stuckThreshold = 20;
 const unsigned long stuckTime = 1000;
 
 const int detectThreshold = 100;
@@ -35,7 +36,7 @@ unsigned long lastMoveTime = 0;
 void recoverFromStuck() {
     Serial.println("⚠️ Fastnat! Backar...");
 
-    analogWrite(L_PWM, driveSpeed);
+    analogWrite(L_PWM, 30);
     analogWrite(R_PWM, 0);
     steeringServo.write(servoCenter - 25);
     delay(700);
@@ -55,10 +56,9 @@ void setup() {
     steeringServo.attach(SERVO_PIN);
     steeringServo.write(servoCenter);
 
-    // ===STARTMODULE-PINS===
     pinMode(A4, INPUT); // Killpin
     pinMode(A5, INPUT); // Killpin
-    pinMode(4, OUTPUT);  // LED på digital pin 4
+    pinMode(4, OUTPUT); // LED
 
     pinMode(L_EN, OUTPUT);
     pinMode(R_EN, OUTPUT);
@@ -76,9 +76,7 @@ void setup() {
 }
 
 void loop() {
-
-    if (digitalRead(A4) == HIGH && digitalRead(A5) == HIGH)
-    {
+    if (digitalRead(A4) == HIGH && digitalRead(A5) == HIGH) {
         digitalWrite(4, HIGH); // LED på
 
         int irLeft = analogRead(IR_LEFT);
@@ -102,36 +100,37 @@ void loop() {
         }
 
         // === DYNAMISK STYRNING ===
-        int angle = servoCenter;
         int diff = abs(irLeft - irRight);
+        int steerAmount = map(diff, 0, 300, minSteer, maxSteer);
+        steerAmount = constrain(steerAmount, minSteer, maxSteer);
 
-        if (diff > 40) {
-            int steerAmount = map(diff, 0, 300, minSteer, maxSteer);
-            steerAmount = constrain(steerAmount, minSteer, maxSteer);
-
-            if (irLeft > irRight) {
-                angle = servoCenter + steerAmount;
-            } else if (irRight > irLeft) {
-                angle = servoCenter - steerAmount;
-            }
+        int angle = servoCenter;
+        if (irLeft > irRight) {
+            angle = servoCenter + steerAmount;
+        } else if (irRight > irLeft) {
+            angle = servoCenter - steerAmount;
         }
 
-        steeringServo.write(constrain(angle, 50, 120));
+        // Begränsa och skriv till servot
+        angle = constrain(angle, 50, 120);
+        steeringServo.write(angle);
 
-        // === MOTOR KÖR FRAMÅT ===
-        analogWrite(R_PWM, driveSpeed);
+        // === MJUK FARTAVMATTNING BEROENDE PÅ STYRVINKEL ===
+        int steerDiff = abs(angle - servoCenter);
+        float factor = (float)steerDiff / maxSteer;
+        float slowDown = factor * factor;
+        int speed = maxSpeed - (int)(slowDown * (maxSpeed - minSpeed));
+        speed = constrain(speed, minSpeed, maxSpeed);
+
+        // Kör motor framåt
+        analogWrite(R_PWM, speed);
         analogWrite(L_PWM, 0);
-    }
-    else {
+    } else {
         digitalWrite(4, LOW); // LED av
         analogWrite(L_PWM, 0);
         analogWrite(R_PWM, 0);
         steeringServo.write(servoCenter);
     }
 
-    delay(1);
-    Serial.print("A4 = ");
-    Serial.println(digitalRead(A4));
-    Serial.print("A5 = ");
-    Serial.println(digitalRead(A5));
+    delay(50);
 }
